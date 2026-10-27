@@ -18,28 +18,137 @@
     <!-- 右侧主体 -->
     <el-container>
       <el-header class="header">
-        <span>欢迎回来，医生{{ doctorName }}</span>
+        <span>欢迎回来，医生 {{ doctorName }}</span>
         <el-button type="danger" link @click="handleLogout">退出登录</el-button>
       </el-header>
 
       <el-main>
-        <el-card shadow="never">
-          <template #header>
-            <div class="card-header">
-              <span>患者列表</span>
-            </div>
-          </template>
+        <el-tabs v-model="activeTab" type="border-card">
+          <!-- 患者管理标签页 -->
+          <el-tab-pane label="患者管理" name="patients">
+            <el-card shadow="never" class="inner-card">
+              <template #header>
+                <div class="card-header">
+                  <span>患者列表</span>
+                  <el-button type="primary" size="small" @click="openAddPatientDialog">
+                    + 新增患者
+                  </el-button>
+                </div>
+              </template>
+              <el-table :data="patients" v-loading="loading" style="width: 100%" border stripe>
+                <el-table-column prop="id" label="ID" width="80" align="center" />
+                <el-table-column prop="name" label="姓名" width="120" />
+                <el-table-column prop="gender" label="性别" width="80" align="center" />
+                <el-table-column prop="phone" label="手机号" width="150" />
+              </el-table>
+            </el-card>
+          </el-tab-pane>
 
-          <el-table :data="patients" v-loading="loading" style="width: 100%" border stripe>
-            <el-table-column prop="id" label="ID" width="80" align="center" />
-            <el-table-column prop="name" label="姓名" width="120" />
-            <el-table-column prop="gender" label="性别" width="80" align="center" />
-            <el-table-column prop="phone" label="手机号" width="150" />
-          </el-table>
-        </el-card>
+          <!-- 病历管理标签页 -->
+          <el-tab-pane label="病历管理" name="records">
+            <el-card shadow="never" class="inner-card">
+              <template #header>
+                <div class="card-header">
+                  <span>病历列表</span>
+                  <el-button type="primary" size="small" @click="openAddRecordDialog">
+                    + 新增病历
+                  </el-button>
+                </div>
+              </template>
+              <el-table :data="records" v-loading="loadingRecords" style="width: 100%" border stripe>
+                <el-table-column prop="record_no" label="病历号" width="200" />
+                <el-table-column prop="patient_id" label="患者ID" width="100" />
+                <el-table-column prop="doctor_id" label="医生ID" width="100" />
+                <el-table-column prop="visit_type" label="就诊类型" width="120" />
+                <el-table-column prop="status" label="状态" width="100">
+                  <template #default="scope">
+                    <el-tag :type="scope.row.status === 'draft' ? 'info' : 'success'">
+                      {{ scope.row.status === 'draft' ? '草稿' : '已签名' }}
+                    </el-tag>
+                  </template>
+                </el-table-column>
+              </el-table>
+            </el-card>
+          </el-tab-pane>
+        </el-tabs>
       </el-main>
     </el-container>
   </el-container>
+
+  <!-- 新增患者弹窗 -->
+  <el-dialog v-model="patientDialogVisible" title="新增患者" width="400px">
+    <el-form :model="newPatient" label-width="80px">
+      <el-form-item label="姓名">
+        <el-input v-model="newPatient.name" placeholder="请输入姓名" />
+      </el-form-item>
+      <el-form-item label="性别">
+        <el-radio-group v-model="newPatient.gender">
+          <el-radio label="男">男</el-radio>
+          <el-radio label="女">女</el-radio>
+        </el-radio-group>
+      </el-form-item>
+      <el-form-item label="手机号">
+        <el-input v-model="newPatient.phone" placeholder="请输入手机号" />
+      </el-form-item>
+    </el-form>
+    <template #footer>
+      <span class="dialog-footer">
+        <el-button @click="patientDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="submitPatient" :loading="submitLoading">确定</el-button>
+      </span>
+    </template>
+  </el-dialog>
+
+  <!-- 新增病历弹窗 -->
+  <el-dialog v-model="recordDialogVisible" title="新增病历" width="500px">
+    <el-form :model="newRecord" label-width="90px">
+      <el-form-item label="患者">
+        <el-select v-model="newRecord.patient_id" placeholder="请选择患者" style="width: 100%">
+          <el-option
+            v-for="p in patients"
+            :key="p.id"
+            :label="`${p.name} (ID:${p.id})`"
+            :value="p.id"
+          />
+        </el-select>
+      </el-form-item>
+
+      <el-form-item label="就诊类型">
+        <el-select v-model="newRecord.visit_type" style="width: 100%">
+          <el-option label="门诊" value="门诊" />
+          <el-option label="急诊" value="急诊" />
+          <el-option label="住院" value="住院" />
+        </el-select>
+      </el-form-item>
+
+      <el-form-item label="就诊时间">
+        <el-date-picker
+          v-model="newRecord.visit_time"
+          type="datetime"
+          placeholder="选择日期时间"
+          style="width: 100%"
+        />
+      </el-form-item>
+
+      <el-form-item label="主诉">
+        <el-input v-model="newRecord.chief_complaint" placeholder="简要描述症状" />
+      </el-form-item>
+
+      <el-form-item label="现病史">
+        <el-input v-model="newRecord.present_illness" type="textarea" :rows="2" />
+      </el-form-item>
+
+      <el-form-item label="过敏史">
+        <el-input v-model="newRecord.allergy_history" type="textarea" :rows="2" />
+      </el-form-item>
+    </el-form>
+    <template #footer>
+      <span class="dialog-footer">
+        <el-button @click="recordDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="submitRecord" :loading="submitRecordLoading">确定</el-button>
+      </span>
+    </template>
+  </el-dialog>
 </template>
 
 <script setup>
@@ -51,9 +160,30 @@ import { User, Document } from '@element-plus/icons-vue'
 
 const router = useRouter()
 const doctorName = ref('')
-const patients = ref([]) // 用来存患者列表
-const loading = ref(false) // 加载动画
+const activeTab = ref('patients')
 
+// 患者数据
+const patients = ref([])
+const loading = ref(false)
+const patientDialogVisible = ref(false)
+const submitLoading = ref(false)
+const newPatient = ref({ name: '', gender: '男', phone: '' })
+
+// 病历数据
+const records = ref([])
+const loadingRecords = ref(false)
+const recordDialogVisible = ref(false)
+const submitRecordLoading = ref(false)
+const newRecord = ref({
+  patient_id: null,
+  visit_type: '门诊',
+  visit_time: new Date(),
+  chief_complaint: '',
+  present_illness: '',
+  allergy_history: ''
+})
+
+// 页面加载时获取数据
 onMounted(async () => {
   const token = localStorage.getItem('token')
   if (!token) {
@@ -62,25 +192,26 @@ onMounted(async () => {
     return
   }
 
-  const config = {
-    headers: { Authorization: `Bearer ${token}` }
-  }
+  const config = { headers: { Authorization: `Bearer ${token}` } }
 
   try {
-    // 1. 获取医生信息
     const resMe = await axios.get('http://localhost:8000/me', config)
     doctorName.value = resMe.data.real_name
 
-    // 2. 获取患者列表
     loading.value = true
     const resPatients = await axios.get('http://localhost:8000/patients', config)
     patients.value = resPatients.data
+
+    loadingRecords.value = true
+    const resRecords = await axios.get('http://localhost:8000/records', config)
+    records.value = resRecords.data
   } catch (error) {
     ElMessage.error('获取数据失败，请重新登录')
     localStorage.removeItem('token')
     router.push('/login')
   } finally {
     loading.value = false
+    loadingRecords.value = false
   }
 })
 
@@ -89,15 +220,80 @@ const handleLogout = () => {
   ElMessage.success('已退出登录')
   router.push('/login')
 }
+
+// 患者相关方法
+const openAddPatientDialog = () => {
+  newPatient.value = { name: '', gender: '男', phone: '' }
+  patientDialogVisible.value = true
+}
+
+const submitPatient = async () => {
+  if (!newPatient.value.name) {
+    ElMessage.warning('请输入患者姓名')
+    return
+  }
+  submitLoading.value = true
+  const token = localStorage.getItem('token')
+  try {
+    const res = await axios.post('http://localhost:8000/patients', newPatient.value, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+    ElMessage.success('患者添加成功！')
+    patientDialogVisible.value = false
+    patients.value.unshift(res.data)
+  } catch (error) {
+    ElMessage.error('添加失败')
+  } finally {
+    submitLoading.value = false
+  }
+}
+
+// 病历相关方法
+const openAddRecordDialog = () => {
+  newRecord.value = {
+    patient_id: patients.value.length > 0 ? patients.value[0].id : null,
+    visit_type: '门诊',
+    visit_time: new Date(),
+    chief_complaint: '',
+    present_illness: '',
+    allergy_history: ''
+  }
+  recordDialogVisible.value = true
+}
+
+const submitRecord = async () => {
+  if (!newRecord.value.patient_id) {
+    ElMessage.warning('请选择患者')
+    return
+  }
+
+  submitRecordLoading.value = true
+  const token = localStorage.getItem('token')
+
+  try {
+    const payload = {
+      ...newRecord.value,
+      visit_time: newRecord.value.visit_time.toISOString()
+    }
+    const res = await axios.post('http://localhost:8000/records', payload, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+    ElMessage.success('病历创建成功！')
+    recordDialogVisible.value = false
+    records.value.unshift(res.data)
+  } catch (error) {
+    if (error.response && error.response.data.error) {
+      ElMessage.error(error.response.data.error.message)
+    } else {
+      ElMessage.error('创建失败')
+    }
+  } finally {
+    submitRecordLoading.value = false
+  }
+}
 </script>
 
 <style scoped>
-.card-header {
-  font-weight: bold;
-  font-size: 16px;
-  color: #333;
-}
-
 .layout-container {
   height: 100vh;
 }
@@ -132,5 +328,15 @@ const handleLogout = () => {
   justify-content: space-between;
   align-items: center;
   border-bottom: 1px solid #e6e6e6;
+}
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: bold;
+  font-size: 16px;
+}
+.inner-card {
+  border: none;
 }
 </style>
