@@ -48,23 +48,38 @@
           <el-tab-pane label="病历管理" name="records">
             <el-card shadow="never" class="inner-card">
               <template #header>
-                <div class="card-header">
+              <div class="card-header">
                   <span>病历列表</span>
                   <el-button type="primary" size="small" @click="openAddRecordDialog">
                     + 新增病历
                   </el-button>
-                </div>
+              </div>
               </template>
-              <el-table :data="records" v-loading="loadingRecords" style="width: 100%" border stripe>
-                <el-table-column prop="record_no" label="病历号" width="200" />
-                <el-table-column prop="patient_id" label="患者ID" width="100" />
-                <el-table-column prop="doctor_id" label="医生ID" width="100" />
-                <el-table-column prop="visit_type" label="就诊类型" width="120" />
+                <el-table :data="records" v-loading="loadingRecords" style="width: 100%" border stripe>
+                <el-table-column prop="record_no" label="病历号" width="180" />
+                <el-table-column label="患者" width="120">
+                  <template #default="scope">
+                    {{ getPatientName(scope.row.patient_id) }}
+                  </template>
+                </el-table-column>
+                <el-table-column prop="visit_type" label="类型" width="80" />
+                <el-table-column prop="visit_time" label="就诊时间" width="180">
+                  <template #default="scope">
+                    {{ formatDate(scope.row.visit_time) }}
+                  </template>
+                </el-table-column>
                 <el-table-column prop="status" label="状态" width="100">
                   <template #default="scope">
                     <el-tag :type="scope.row.status === 'draft' ? 'info' : 'success'">
                       {{ scope.row.status === 'draft' ? '草稿' : '已签名' }}
                     </el-tag>
+                  </template>
+                </el-table-column>
+                <el-table-column label="操作" width="150" fixed="right">
+                  <template #default="scope">
+                    <el-button type="primary" size="small" @click="openRecordDetail(scope.row)">
+                      查看详情
+                    </el-button>
                   </template>
                 </el-table-column>
               </el-table>
@@ -149,6 +164,41 @@
       </span>
     </template>
   </el-dialog>
+
+    <!-- 病历详情抽屉 -->
+  <el-drawer v-model="drawerVisible" title="病历详情" size="50%">
+    <div v-if="currentRecord" class="record-detail">
+      <el-descriptions title="基本信息" :column="2" border>
+        <el-descriptions-item label="病历号">{{ currentRecord.record_no }}</el-descriptions-item>
+        <el-descriptions-item label="状态">
+          <el-tag :type="currentRecord.status === 'draft' ? 'info' : 'success'">
+            {{ currentRecord.status === 'draft' ? '草稿' : '已签名' }}
+          </el-tag>
+        </el-descriptions-item>
+        <el-descriptions-item label="患者">{{ getPatientName(currentRecord.patient_id) }}</el-descriptions-item>
+        <el-descriptions-item label="就诊类型">{{ currentRecord.visit_type }}</el-descriptions-item>
+        <el-descriptions-item label="就诊时间">{{ formatDate(currentRecord.visit_time) }}</el-descriptions-item>
+      </el-descriptions>
+
+      <el-divider />
+
+      <el-descriptions title="病史信息" :column="1" border>
+        <el-descriptions-item label="主诉">{{ currentRecord.chief_complaint || '无' }}</el-descriptions-item>
+        <el-descriptions-item label="现病史">{{ currentRecord.present_illness || '无' }}</el-descriptions-item>
+        <el-descriptions-item label="过敏史">{{ currentRecord.allergy_history || '无' }}</el-descriptions-item>
+      </el-descriptions>
+
+      <div class="drawer-footer" v-if="currentRecord.status === 'draft'">
+        <el-alert title="注意：签名后病历将被锁定，不可再修改" type="warning" show-icon :closable="false" style="margin-bottom: 20px;" />
+        <el-button type="success" size="large" @click="handleSignRecord" style="width: 100%;">
+          确认无误，签名锁定
+        </el-button>
+      </div>
+      <div class="drawer-footer" v-else>
+        <el-alert title="该病历已签名锁定" type="success" show-icon :closable="false" />
+      </div>
+    </div>
+  </el-drawer>
 </template>
 
 <script setup>
@@ -291,6 +341,63 @@ const submitRecord = async () => {
     submitRecordLoading.value = false
   }
 }
+
+// 把 ID 转成患者姓名
+const getPatientName = (id) => {
+  const p = patients.value.find(item => item.id === id)
+  return p ? p.name : '未知患者'
+}
+
+// 格式化时间
+const formatDate = (dateStr) => {
+  if (!dateStr) return ''
+  const date = new Date(dateStr)
+  return date.toLocaleString()
+}
+
+// 详情抽屉的变量
+const drawerVisible = ref(false)
+const currentRecord = ref(null)
+
+// 打开详情抽屉
+// 打开详情抽屉（从后端拉取最新、最全的数据）
+const openRecordDetail = async (row) => {
+  const token = localStorage.getItem('token')
+  try {
+    // 请求后端的详情接口
+    const res = await axios.get(`http://localhost:8000/records/${row.id}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+    currentRecord.value = res.data
+    drawerVisible.value = true
+  } catch (error) {
+    ElMessage.error(error.response?.data?.error?.message || '获取详情失败')
+  }
+}
+
+// 签名锁定功能
+const handleSignRecord = async () => {
+  if (!currentRecord.value) return
+
+  const token = localStorage.getItem('token')
+  try {
+    // 调用后端即将写的签名接口
+    await axios.post(`http://localhost:8000/records/${currentRecord.value.id}/sign`, {}, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+    ElMessage.success('病历签名锁定成功，无法再修改！')
+
+    // 更新本地表格里的状态
+    currentRecord.value.status = 'signed'
+    const index = records.value.findIndex(r => r.id === currentRecord.value.id)
+    if (index !== -1) {
+      records.value[index].status = 'signed'
+    }
+    drawerVisible.value = false
+  } catch (error) {
+    ElMessage.error(error.response?.data?.error?.message || '签名失败')
+  }
+}
 </script>
 
 <style scoped>
@@ -338,5 +445,14 @@ const submitRecord = async () => {
 }
 .inner-card {
   border: none;
+}
+
+.record-detail {
+  padding: 0 20px;
+}
+.drawer-footer {
+  margin-top: 30px;
+  padding-top: 20px;
+  border-top: 1px solid #eee;
 }
 </style>
