@@ -2,8 +2,8 @@
 
 > 基于 **Vue 3 + Vite + Element Plus** 的前端应用，配套后端 [`medical_system`](../medical_system) 使用，用于个人练习前后端分离与医疗信息化业务场景。
 
-**当前版本：`v0.3.0`**
-（需要后端 `v0.8.0` 及以上：该版本提供病历详情、签名锁定与 CORS 白名单）
+**当前版本：`v0.4.0`**
+（需要后端 `v0.9.0` 及以上：该版本提供病历列表数据隔离与注册角色校验）
 
 ---
 
@@ -61,6 +61,8 @@ medical-frontend/
 │   │   └── Dashboard.vue    # 主控台：患者管理 / 病历管理两个标签页，含新增弹窗、详情抽屉与签名
 │   ├── router/
 │   │   └── index.js         # 路由表：/login、/dashboard、/ 重定向
+│   ├── utils/
+│   │   └── request.js       # axios 实例 + 请求/响应拦截器（token 注入、401 跳转、错误弹窗）
 │   ├── App.vue              # 根组件，只放 <router-view />
 │   ├── main.js              # 入口：挂载 router 与 Element Plus
 │   └── style.css            # 全局样式
@@ -122,7 +124,24 @@ npm run dev
 
 ## 与后端的接口约定
 
-前端目前依赖以下 8 个接口，全部指向 `http://localhost:8000`：
+前端目前依赖以下 8 个接口。请求统一走 `src/utils/request.js` 里的 axios 实例，**API 地址只在那一处配置**（`baseURL: 'http://localhost:8000'`），组件里不再出现完整 URL：
+
+```javascript
+import request from '../utils/request'
+
+const res = await request.get('/records')   // 已是 response.data，不用再 .data
+```
+
+**拦截器做了什么**：
+
+| 拦截器 | 行为 |
+| --- | --- |
+| `interceptors.request` | 自动从 `localStorage` 取 `token`，注入 `Authorization: Bearer xxx` |
+| `interceptors.response`（成功） | 直接返回 `response.data`，组件少写一层 `.data` |
+| `interceptors.response`（`401`） | 提示「登录已过期」，清除 token 并跳转 `/login` |
+| `interceptors.response`（其他错误） | 取后端 `error.message` 统一弹窗；无响应时提示「服务器连接失败」 |
+
+> 因为错误提示已在拦截器里统一处理，组件里的 `catch` 只做兜底（记录日志），不再重复弹窗——否则同一个错误会弹两次。
 
 | 方法 | 路径 | 用途 | 鉴权 |
 | --- | --- | --- | --- |
@@ -130,7 +149,7 @@ npm run dev
 | `GET` | `/me` | 获取当前登录医生姓名 | 是 |
 | `GET` | `/patients` | 患者列表 | 是 |
 | `POST` | `/patients` | 新增患者 | 否 |
-| `GET` | `/records` | 病历列表（默认取前 10 条） | 是 |
+| `GET` | `/records` | 病历列表（默认取前 10 条；非 `admin` 只返回自己接诊的） | 是 |
 | `POST` | `/records` | 新增病历（后端仅 `doctor` 可调用） | 是 |
 | `GET` | `/records/{record_id}` | 病历详情（抽屉数据源） | 是 |
 | `POST` | `/records/{record_id}/sign` | 签名锁定（仅接诊医生） | 是 |
@@ -209,9 +228,10 @@ location / {
 
 按当前学习阶段有意保留的简化，后续版本逐步处理：
 
-- **接口地址硬编码**：`http://localhost:8000` 写死在 `Login.vue` 和 `Dashboard.vue` 里，共 8 个调用点（Login 1 个、Dashboard 7 个），换环境要逐个改。计划改为 `.env` + Vite 环境变量。
+- **API 地址仍写死在代码里**：`baseURL: 'http://localhost:8000'` 目前硬编码在 `src/utils/request.js`，虽然已从 8 处收敛到 1 处，但仍未走环境变量。计划改为 `.env` + `import.meta.env.VITE_API_BASE`。
+- **`catch` 块多为空实现**：`Dashboard.vue` 有 5 处 `catch (error) { }`，因为错误提示已交给拦截器。但空 `catch` 会吞掉非 HTTP 异常（例如代码里的 `TypeError`），排查时会毫无线索，建议至少 `console.error(error)`。
 - **无路由守卫**：`/dashboard` 没有全局守卫，未登录时靠组件内 `onMounted` 检查 token 后跳回登录页，会有一次闪烁。
-- **无统一请求层**：没有 axios 实例与拦截器，token 注入、错误处理在每个页面重复。
+- **请求超时固定 5 秒**：`request.js` 里 `timeout: 5000`，导出大列表或后端冷启动时可能误报「服务器连接失败」。
 - **签名后没有修改入口**：病历一旦签名即只读，因为后端还没有修改接口；`signed` 状态的实际「防修改」要等后端补上 `PATCH /records/{id}` 后才真正生效。
 - **列表没有分页控件**：`GET /records` 支持 `skip` / `limit`，但前端固定取前 10 条，没有翻页或加载更多。
 - **状态文案只有两种**：`draft` 显示「草稿」、其余一律显示「已签名」。后端还支持 `amended` / `void`，前端尚未区分。

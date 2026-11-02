@@ -204,7 +204,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import axios from 'axios'
+import request from '../utils/request.js'
 import { ElMessage } from 'element-plus'
 import { User, Document } from '@element-plus/icons-vue'
 
@@ -242,23 +242,19 @@ onMounted(async () => {
     return
   }
 
-  const config = { headers: { Authorization: `Bearer ${token}` } }
-
   try {
-    const resMe = await axios.get('http://localhost:8000/me', config)
-    doctorName.value = resMe.data.real_name
+    const resMe = await request.get('/me')
+    doctorName.value = resMe.real_name
 
     loading.value = true
-    const resPatients = await axios.get('http://localhost:8000/patients', config)
-    patients.value = resPatients.data
+    const resPatients = await request.get('/patients')
+    patients.value = resPatients
 
     loadingRecords.value = true
-    const resRecords = await axios.get('http://localhost:8000/records', config)
-    records.value = resRecords.data
+    const resRecords = await request.get('/records')
+    records.value = resRecords
   } catch (error) {
-    ElMessage.error('获取数据失败，请重新登录')
-    localStorage.removeItem('token')
-    router.push('/login')
+    console.error('加载首页数据失败',error)
   } finally {
     loading.value = false
     loadingRecords.value = false
@@ -283,16 +279,12 @@ const submitPatient = async () => {
     return
   }
   submitLoading.value = true
-  const token = localStorage.getItem('token')
   try {
-    const res = await axios.post('http://localhost:8000/patients', newPatient.value, {
-      headers: { Authorization: `Bearer ${token}` }
-    })
+    const res = await request.post('/patients', newPatient.value)
     ElMessage.success('患者添加成功！')
     patientDialogVisible.value = false
-    patients.value.unshift(res.data)
+    patients.value.unshift(res)
   } catch (error) {
-    ElMessage.error('添加失败')
   } finally {
     submitLoading.value = false
   }
@@ -318,25 +310,17 @@ const submitRecord = async () => {
   }
 
   submitRecordLoading.value = true
-  const token = localStorage.getItem('token')
 
   try {
     const payload = {
       ...newRecord.value,
       visit_time: newRecord.value.visit_time.toISOString()
     }
-    const res = await axios.post('http://localhost:8000/records', payload, {
-      headers: { Authorization: `Bearer ${token}` }
-    })
+    const res = await request.post('/records', payload)
     ElMessage.success('病历创建成功！')
     recordDialogVisible.value = false
-    records.value.unshift(res.data)
+    records.value.unshift(res)
   } catch (error) {
-    if (error.response && error.response.data.error) {
-      ElMessage.error(error.response.data.error.message)
-    } else {
-      ElMessage.error('创建失败')
-    }
   } finally {
     submitRecordLoading.value = false
   }
@@ -362,16 +346,12 @@ const currentRecord = ref(null)
 // 打开详情抽屉
 // 打开详情抽屉（从后端拉取最新、最全的数据）
 const openRecordDetail = async (row) => {
-  const token = localStorage.getItem('token')
   try {
     // 请求后端的详情接口
-    const res = await axios.get(`http://localhost:8000/records/${row.id}`, {
-      headers: { Authorization: `Bearer ${token}` }
-    })
-    currentRecord.value = res.data
+    const res = await request.get(`/records/${row.id}`)
+    currentRecord.value = res
     drawerVisible.value = true
   } catch (error) {
-    ElMessage.error(error.response?.data?.error?.message || '获取详情失败')
   }
 }
 
@@ -379,12 +359,9 @@ const openRecordDetail = async (row) => {
 const handleSignRecord = async () => {
   if (!currentRecord.value) return
 
-  const token = localStorage.getItem('token')
   try {
     // 调用后端即将写的签名接口
-    await axios.post(`http://localhost:8000/records/${currentRecord.value.id}/sign`, {}, {
-      headers: { Authorization: `Bearer ${token}` }
-    })
+    await request.post(`/records/${currentRecord.value.id}/sign`)
     ElMessage.success('病历签名锁定成功，无法再修改！')
 
     // 更新本地表格里的状态
@@ -395,7 +372,6 @@ const handleSignRecord = async () => {
     }
     drawerVisible.value = false
   } catch (error) {
-    ElMessage.error(error.response?.data?.error?.message || '签名失败')
   }
 }
 </script>

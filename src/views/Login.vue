@@ -21,11 +21,11 @@
 
 <script setup>
 import { ref } from 'vue'
-import axios from 'axios'
+import request from '../utils/request' // 1. 换成我们封装好的 request
 import { ElMessage } from 'element-plus'
-import router from "../router/index.js";
 import { useRouter } from 'vue-router'
 
+const router = useRouter()
 const loading = ref(false)
 const loginForm = ref({
   username: '',
@@ -40,24 +40,21 @@ const handleLogin = async () => {
 
   loading.value = true
   try {
-    const res = await axios.post('http://localhost:8000/login', {
+    // 2. 使用 request 发请求，不需要加完整的 http 地址
+    const res = await request.post('/login', {
       username: loginForm.value.username,
       password: loginForm.value.password
     })
 
-    // 登录成功，拿到 token
-    const token = res.data.access_token
+    // 3. 拦截器已经处理了，直接拿 access_token
+    const token = res.access_token
     localStorage.setItem('token', token)
     ElMessage.success('登录成功！')
 
     router.push('/dashboard')
   } catch (error) {
-    // 处理统一错误格式
-    if (error.response && error.response.data.error) {
-      ElMessage.error(error.response.data.error.message)
-    } else {
-      ElMessage.error('服务器连接失败')
-    }
+    // 错误已经被 request.js 拦截处理并弹出提示了，这里兜底一下
+    console.error(error)
   } finally {
     loading.value = false
   }
