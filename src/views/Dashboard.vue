@@ -18,7 +18,7 @@
     <!-- 右侧主体 -->
     <el-container>
       <el-header class="header">
-        <span>欢迎回来，医生 {{ doctorName }}</span>
+        <span>欢迎回来，{{ doctorName }}</span>
         <el-button type="danger" link @click="handleLogout">退出登录</el-button>
       </el-header>
 
@@ -40,6 +40,13 @@
                 <el-table-column prop="name" label="姓名" width="120" />
                 <el-table-column prop="gender" label="性别" width="80" align="center" />
                 <el-table-column prop="phone" label="手机号" width="150" />
+                <el-table-column label="操作" width="150" fixed="right">
+                  <template #default="scope">
+                    <el-button type="success" size="small" @click="openPatientDetail(scope.row)">
+                      查看档案
+                    </el-button>
+                  </template>
+                </el-table-column>
               </el-table>
             </el-card>
           </el-tab-pane>
@@ -82,6 +89,22 @@
                     </el-button>
                   </template>
                 </el-table-column>
+              </el-table>
+            </el-card>
+          </el-tab-pane>
+
+          <!-- 科室管理标签页 (仅admin可见) -->
+          <el-tab-pane label="科室管理" name="departments" v-if="isAdmin">
+            <el-card shadow="never" class="inner-card">
+              <template #header>
+                <div class="card-header">
+                  <span>科室列表</span>
+                  <el-button type="primary" size="small" @click="openAddDeptDialog">+ 新增科室</el-button>
+                </div>
+              </template>
+              <el-table :data="departments" style="width: 100%" border stripe>
+                <el-table-column prop="id" label="ID" width="80" align="center" />
+                <el-table-column prop="name" label="科室名称" />
               </el-table>
             </el-card>
           </el-tab-pane>
@@ -165,7 +188,7 @@
     </template>
   </el-dialog>
 
-    <!-- 病历详情抽屉 -->
+  <!-- 病历详情抽屉 -->
   <el-drawer v-model="drawerVisible" title="病历详情" size="50%">
     <div v-if="currentRecord" class="record-detail">
       <el-descriptions title="基本信息" :column="2" border>
@@ -199,6 +222,47 @@
       </div>
     </div>
   </el-drawer>
+
+  <!-- 新增：患者历史档案抽屉 -->
+  <el-drawer v-model="patientDrawerVisible" :title="`${currentPatient?.name} 的历史病历`" size="50%">
+    <el-table :data="patientRecords" v-loading="loadingRecords">
+      <el-table-column prop="record_no" label="病历号" width="180" />
+      <el-table-column prop="visit_type" label="类型" width="80" />
+      <el-table-column prop="visit_time" label="就诊时间" width="180">
+        <template #default="scope">
+          {{ formatDate(scope.row.visit_time) }}
+        </template>
+      </el-table-column>
+      <el-table-column prop="status" label="状态" width="100">
+        <template #default="scope">
+          <el-tag :type="scope.row.status === 'draft' ? 'info' : 'success'">
+            {{ scope.row.status === 'draft' ? '草稿' : '已签名' }}
+          </el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column label="操作" width="100">
+        <template #default="scope">
+           <el-button type="primary" size="small" @click="openRecordDetail(scope.row)">查看</el-button>
+        </template>
+      </el-table-column>
+    </el-table>
+    <el-empty v-if="patientRecords.length === 0" description="该患者暂无你接诊的记录" />
+  </el-drawer>
+
+  <!-- 新增：新增科室弹窗 -->
+  <el-dialog v-model="deptDialogVisible" title="新增科室" width="400px">
+    <el-form :model="newDept" label-width="80px">
+      <el-form-item label="科室名称">
+        <el-input v-model="newDept.name" placeholder="如：内科、外科" />
+      </el-form-item>
+    </el-form>
+    <template #footer>
+      <span class="dialog-footer">
+        <el-button @click="deptDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="submitDept" :loading="submitDeptLoading">确定</el-button>
+      </span>
+    </template>
+  </el-dialog>
 </template>
 
 <script setup>
@@ -211,6 +275,20 @@ import { User, Document } from '@element-plus/icons-vue'
 const router = useRouter()
 const doctorName = ref('')
 const activeTab = ref('patients')
+
+// 角色判断
+const isAdmin = ref(false)
+
+// 科室相关变量
+const departments = ref([])
+const deptDialogVisible = ref(false)
+const submitDeptLoading = ref(false)
+const newDept = ref({ name: '' })
+
+// 患者历史档案相关变量
+const patientDrawerVisible = ref(false)
+const currentPatient = ref(null)
+const patientRecords = ref([])
 
 // 患者数据
 const patients = ref([])
@@ -233,6 +311,10 @@ const newRecord = ref({
   allergy_history: ''
 })
 
+// 详情抽屉变量
+const drawerVisible = ref(false)
+const currentRecord = ref(null)
+
 // 页面加载时获取数据
 onMounted(async () => {
   const token = localStorage.getItem('token')
@@ -245,16 +327,20 @@ onMounted(async () => {
   try {
     const resMe = await request.get('/me')
     doctorName.value = resMe.real_name
+    isAdmin.value = resMe.role === 'admin'
+
+    if (isAdmin.value) {
+      departments.value = await request.get('/departments')
+    }
 
     loading.value = true
-    const resPatients = await request.get('/patients')
-    patients.value = resPatients
+    patients.value = await request.get('/patients')
 
     loadingRecords.value = true
-    const resRecords = await request.get('/records')
-    records.value = resRecords
+    records.value = await request.get('/records')
+
   } catch (error) {
-    console.error('加载首页数据失败',error)
+    console.error('加载首页数据失败', error)
   } finally {
     loading.value = false
     loadingRecords.value = false
@@ -339,15 +425,9 @@ const formatDate = (dateStr) => {
   return date.toLocaleString()
 }
 
-// 详情抽屉的变量
-const drawerVisible = ref(false)
-const currentRecord = ref(null)
-
-// 打开详情抽屉
-// 打开详情抽屉（从后端拉取最新、最全的数据）
+// 打开病历详情抽屉
 const openRecordDetail = async (row) => {
   try {
-    // 请求后端的详情接口
     const res = await request.get(`/records/${row.id}`)
     currentRecord.value = res
     drawerVisible.value = true
@@ -358,13 +438,9 @@ const openRecordDetail = async (row) => {
 // 签名锁定功能
 const handleSignRecord = async () => {
   if (!currentRecord.value) return
-
   try {
-    // 调用后端即将写的签名接口
     await request.post(`/records/${currentRecord.value.id}/sign`)
     ElMessage.success('病历签名锁定成功，无法再修改！')
-
-    // 更新本地表格里的状态
     currentRecord.value.status = 'signed'
     const index = records.value.findIndex(r => r.id === currentRecord.value.id)
     if (index !== -1) {
@@ -374,9 +450,47 @@ const handleSignRecord = async () => {
   } catch (error) {
   }
 }
+
+// 提交新增科室
+const openAddDeptDialog = () => {
+  newDept.value = { name: '' }
+  deptDialogVisible.value = true
+}
+
+const submitDept = async () => {
+  if (!newDept.value.name) {
+    ElMessage.warning('请输入科室名称')
+    return
+  }
+  submitDeptLoading.value = true
+  try {
+    const res = await request.post('/departments', newDept.value)
+    ElMessage.success('科室添加成功')
+    departments.value.push(res)
+    deptDialogVisible.value = false
+  } catch (error) {
+  } finally {
+    submitDeptLoading.value = false
+  }
+}
+
+// 打开患者历史档案
+const openPatientDetail = async (row) => {
+  currentPatient.value = row
+  loadingRecords.value = true
+  patientDrawerVisible.value = true
+  try {
+    patientRecords.value = await request.get(`/records?patient_id=${row.id}`)
+  } catch (error) {
+    patientRecords.value = []
+  } finally {
+    loadingRecords.value = false
+  }
+}
 </script>
 
 <style scoped>
+/* 保持你原来的样式不变 */
 .layout-container {
   height: 100vh;
 }
@@ -422,7 +536,6 @@ const handleSignRecord = async () => {
 .inner-card {
   border: none;
 }
-
 .record-detail {
   padding: 0 20px;
 }

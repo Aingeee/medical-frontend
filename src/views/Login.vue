@@ -13,6 +13,8 @@
           <el-button type="primary" size="large" style="width: 100%" @click="handleLogin" :loading="loading">
             登 录
           </el-button>
+          <el-link style="width: 100%" @click="router.push('/register')">还没有账号？去注册</el-link>
+
         </el-form-item>
       </el-form>
     </el-card>
